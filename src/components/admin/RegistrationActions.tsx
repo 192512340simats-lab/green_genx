@@ -59,9 +59,13 @@ export default function RegistrationActions({
         <button type="button" className="btn-primary w-full" disabled={busy || status === "approved" || (category === "external" && paymentStatus !== "verified")} onClick={() => update("approve")}>
           {busy ? "Updating..." : "Approve team"}
         </button>
-        <label className="block"><span className="label">Reason if rejecting</span><textarea className="input min-h-24 resize-y" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain what needs attention..." /></label>
+        <label className="block">
+          <span className="label">Reason if rejecting</span>
+          <textarea className="input min-h-24 resize-y" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this team is being rejected..." />
+        </label>
+        <p className="text-xs leading-5 text-ink-mute">You can reject a team even after its payment is verified. The payment record will be kept.</p>
         <button type="button" className="btn-danger w-full" disabled={busy || status === "rejected" || reason.trim().length < 3} onClick={() => update("reject")}>
-          Reject registration
+          Reject team
         </button>
       </div>
       {message && <p role="status" className="mt-4 rounded-lg bg-brand-50 p-3 text-sm text-brand-800">{message}</p>}

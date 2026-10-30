@@ -1,8 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import type { EventSettings } from "@/lib/types";
+
+const MAX_QR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_QR_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 function toLocalDateTime(value: string | null) {
   if (!value) return "";
@@ -43,7 +46,15 @@ export default function SettingsForm({ settings, initialQrUrl }: { settings: Eve
   const [saving, setSaving] = useState(false);
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrUrl, setQrUrl] = useState<string | null>(initialQrUrl);
+  const [qrPreviewUrl, setQrPreviewUrl] = useState<string | null>(null);
+  const [editingQr, setEditingQr] = useState(false);
   const [uploadingQr, setUploadingQr] = useState(false);
+  const [qrMessage, setQrMessage] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    if (qrPreviewUrl) URL.revokeObjectURL(qrPreviewUrl);
+  }, [qrPreviewUrl]);
 
   function update(name: keyof typeof values, value: string | boolean) {
     setValues((current) => ({ ...current, [name]: value }));
@@ -83,25 +94,58 @@ export default function SettingsForm({ settings, initialQrUrl }: { settings: Eve
   async function uploadQr() {
     if (!qrFile) return;
     setUploadingQr(true);
-    setError(null);
-    setMessage(null);
+    setQrError(null);
+    setQrMessage(null);
     const formData = new FormData();
     formData.set("qr", qrFile);
     try {
       const response = await fetch("/api/admin/settings/qr", { method: "POST", body: formData });
       const result = await response.json() as { error?: string; url?: string };
       if (!response.ok || !result.url) {
-        setError(result.error ?? "Could not upload the payment QR.");
+        setQrError(result.error ?? "Could not upload the payment QR.");
         return;
       }
       setQrUrl(result.url);
       setQrFile(null);
-      setMessage("Payment QR updated.");
+      setQrPreviewUrl(null);
+      setEditingQr(false);
+      setQrMessage("Payment QR updated.");
     } catch {
-      setError("Network error while uploading the payment QR.");
+      setQrError("Network error while uploading the payment QR.");
     } finally {
       setUploadingQr(false);
     }
+  }
+
+  function selectQr(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setQrError(null);
+    setQrMessage(null);
+    if (!file) return;
+    if (!ALLOWED_QR_TYPES.includes(file.type)) {
+      setQrFile(null);
+      setQrPreviewUrl(null);
+      setQrError("Payment QR image must be a PNG, JPG, JPEG, or WEBP image.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > MAX_QR_BYTES) {
+      setQrFile(null);
+      setQrPreviewUrl(null);
+      setQrError("Payment QR image must be smaller than 2 MB.");
+      event.target.value = "";
+      return;
+    }
+    setQrFile(file);
+    setQrPreviewUrl(URL.createObjectURL(file));
+  }
+
+  function cancelQrEdit() {
+    setQrFile(null);
+    setQrPreviewUrl(null);
+    setEditingQr(false);
+    setQrError(null);
+    setQrMessage(null);
   }
 
   return (
@@ -137,13 +181,65 @@ export default function SettingsForm({ settings, initialQrUrl }: { settings: Eve
           <TextInput label="Instagram URL" value={values.instagram_url} onChange={(v) => update("instagram_url", v)} type="url" />
           <label><span className="label">Payment instructions</span><textarea className="input min-h-28 resize-y" value={values.payment_instructions} onChange={(e) => update("payment_instructions", e.target.value)} maxLength={1000} /></label>
         </div>
-        <div className="border-t border-brand-100 pt-4">
-          <label className="block"><span className="label">Payment QR image</span><input className="block w-full rounded-xl border border-brand-200 bg-white px-3 py-3 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand-800" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setQrFile(event.target.files?.[0] ?? null)} /><span className="mt-1 block text-xs text-ink-mute">JPG, PNG, or WebP; maximum 2 MB. Uploading replaces the current QR.</span></label>
-          <div className="mt-3 flex flex-wrap items-center gap-4">
-            {qrUrl && <Image src={qrUrl} alt="Current event payment QR" width={128} height={128} className="h-32 w-32 rounded-lg border border-brand-100 bg-white object-contain p-2" />}
-            {qrFile && <button type="button" className="btn-secondary px-4 py-2" onClick={uploadQr} disabled={uploadingQr}>{uploadingQr ? "Uploading..." : "Upload selected QR"}</button>}
-          </div>
+      </section>
+
+      <section className="card space-y-4">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-brand-950">Payment Settings</h2>
+          <p className="mt-1 text-sm text-ink-soft">Manage the QR code shown to external teams during registration.</p>
         </div>
+        {qrUrl ? (
+          <Image
+            src={qrUrl}
+            alt="Currently active payment QR code"
+            width={320}
+            height={320}
+            className="h-48 w-48 rounded-xl border border-brand-100 bg-white object-contain p-2"
+          />
+        ) : (
+          <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">No payment QR code has been uploaded yet.</p>
+        )}
+        {!editingQr ? (
+          <button type="button" className="btn-secondary w-fit" onClick={() => setEditingQr(true)}>
+            Edit QR Code
+          </button>
+        ) : (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="label">Upload a new payment QR code</span>
+              <input
+                className="block w-full rounded-xl border border-brand-200 bg-white px-3 py-3 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand-800"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+                onChange={selectQr}
+                disabled={uploadingQr}
+              />
+              <span className="mt-1 block text-xs text-ink-mute">PNG, JPG, JPEG, or WEBP; maximum 2 MB.</span>
+            </label>
+            {qrPreviewUrl && (
+              <div>
+                <p className="mb-2 text-sm font-semibold text-brand-900">Preview before saving</p>
+                <Image
+                  src={qrPreviewUrl}
+                  alt="Preview of the new payment QR code"
+                  width={320}
+                  height={320}
+                  className="h-48 w-48 rounded-xl border border-brand-100 bg-white object-contain p-2"
+                />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-3">
+              <button type="button" className="btn-primary" onClick={uploadQr} disabled={!qrFile || uploadingQr}>
+                {uploadingQr ? "Saving..." : "Save QR Code"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={cancelQrEdit} disabled={uploadingQr}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {qrMessage && <p role="status" className="rounded-xl bg-brand-50 p-4 text-sm text-brand-800">{qrMessage}</p>}
+        {qrError && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{qrError}</p>}
       </section>
 
       {message && <p role="status" className="rounded-xl bg-brand-50 p-4 text-sm text-brand-800">{message}</p>}

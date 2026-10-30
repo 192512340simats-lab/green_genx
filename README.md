@@ -28,8 +28,9 @@ The Green GenX event website and team-registration portal, built with Next.js 15
    2. `supabase/migrations/0002_rate_limit.sql`
    3. `supabase/migrations/0003_admin_content.sql`
    4. `supabase/migrations/0004_public_registration_count.sql`
+   5. `supabase/migrations/0005_admin_team_filters.sql`
 
-   The first migration creates the schema, RLS policies, and storage buckets. The second enables atomic rate limiting. The third enables atomic content editing in the organizer settings. The fourth exposes only an aggregate team count to the public dashboard; participant records remain private.
+   The first migration creates the schema, RLS policies, and storage buckets. The second enables atomic rate limiting. The third enables atomic content editing in the organizer settings. The fourth exposes only an aggregate team count to the public dashboard; participant records remain private. The fifth adds indexes for the organizer's filtered team lists.
 
 4. Copy the project URL, anon key, and service-role key from **Supabase → Project Settings → API** into `.env.local`:
 
@@ -78,7 +79,7 @@ Organizer sign-in sends a one-time email link only when the submitted address is
 - Server-side validation, duplicate checks, atomic registration IDs, payment-fee calculation, rate limiting, and private upload validation.
 - One-time status token; public status lookup requires both the registration ID and token.
 - Public QR verification page and approved-team PDF gate pass.
-- Allow-listed organizer login, registration review, payment verification, approval/rejection, registration edits, short-lived private document previews, XLSX export, and event/content settings.
+- Allow-listed organizer login, registration review, payment verification, approval/rejection, registration edits, short-lived private document previews, XLSX export, and event/content settings, including Payment Settings for replacing the external registration QR code.
 
 ## Validation
 
@@ -101,4 +102,5 @@ Deploy the project to Vercel and add the same environment variables in **Project
 - Public clients have no RLS access to registration records. Sensitive operations use server route handlers.
 - The service-role key is server-only and bypasses RLS; only authorized server paths use it.
 - Participant documents are stored in the private `participant-docs` bucket and exposed to organizers through signed preview URLs that expire after 60 seconds.
+- The active payment QR path is stored in the existing `event_settings.payment_qr_path` field and its image is served from the public `site-assets` bucket. This bucket is separate from the private participant documents bucket; only authenticated administrators can upload or replace QR images through the server route.
 - A document displayed in a browser can still be saved by a determined viewer.

@@ -46,16 +46,42 @@ export default function RegistrationForm() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/event-settings")
-      .then(async (response) => {
+    let hasLoaded = false;
+    let requestPending = false;
+
+    async function loadEventSettings() {
+      if (requestPending) return;
+      requestPending = true;
+      try {
+        const response = await fetch("/api/event-settings", { cache: "no-store" });
         const data = await response.json() as EventRegistrationSettings & { error?: string };
         if (!response.ok) throw new Error(data.error ?? "Could not load registration details.");
-        if (active) setEventSettings(data);
-      })
-      .catch((cause: unknown) => {
-        if (active) setSettingsError(cause instanceof Error ? cause.message : "Could not load registration details.");
-      });
-    return () => { active = false; };
+        if (active) {
+          setEventSettings(data);
+          setSettingsError(null);
+          hasLoaded = true;
+        }
+      } catch (cause: unknown) {
+        if (active && !hasLoaded) {
+          setSettingsError(cause instanceof Error ? cause.message : "Could not load registration details.");
+        }
+      } finally {
+        requestPending = false;
+      }
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") void loadEventSettings();
+    }
+
+    void loadEventSettings();
+    const interval = window.setInterval(() => void loadEventSettings(), 60_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, []);
 
   function updateForm(event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
@@ -201,55 +227,67 @@ export default function RegistrationForm() {
         </section>
       ) : (
         <section className="space-y-4 border-t border-brand-100 pt-6">
-          <div className="flex w-fit items-center gap-3 rounded-xl border border-brand-100 bg-brand-50 p-2.5">
-            <button
-              type="button"
-              aria-label="View payment QR code full screen"
-              aria-haspopup="dialog"
-              onClick={() => paymentQrDialog.current?.showModal()}
-              className="rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700"
-            >
-              <Image
-                src="/payment-qr.png"
-                alt="Payment QR code for UPI ID Pos.11396721@indus"
-                width={768}
-                height={916}
-                className="h-28 w-24 rounded-lg bg-white object-contain"
-              />
-            </button>
-            <div className="pr-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-mute">Scan to pay</p>
-              <p className="mt-1 text-xs font-bold text-brand-900">UPI ID</p>
-              <p className="text-xs font-semibold text-brand-900">Pos.11396721@indus</p>
-            </div>
-          </div>
-          <dialog
-            ref={paymentQrDialog}
-            aria-label="Payment QR code"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) paymentQrDialog.current?.close();
-            }}
-            className="fixed inset-0 !m-0 h-dvh max-h-none w-screen max-w-none bg-black/90 p-6 text-white backdrop:bg-black/90"
-          >
-            <div className="flex h-full flex-col items-center justify-center gap-5">
+          {eventSettings?.payment_qr_url ? (
+            <div className="flex w-fit items-center gap-4 rounded-xl border border-brand-100 bg-brand-50 p-3">
               <button
                 type="button"
-                autoFocus
-                onClick={() => paymentQrDialog.current?.close()}
-                className="absolute right-5 top-5 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                aria-label="View payment QR code full screen"
+                aria-haspopup="dialog"
+                onClick={() => paymentQrDialog.current?.showModal()}
+                className="rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700"
               >
-                Close <span aria-hidden="true">×</span>
+                <Image
+                  src={eventSettings.payment_qr_url}
+                  alt="Payment QR code"
+                  width={768}
+                  height={916}
+                  className="h-36 w-36 rounded-lg bg-white object-contain p-1 sm:h-40 sm:w-40"
+                />
               </button>
-              <Image
-                src="/payment-qr.png"
-                alt="Payment QR code for UPI ID Pos.11396721@indus"
-                width={768}
-                height={916}
-                className="max-h-[calc(100dvh-8rem)] w-auto max-w-[min(90vw,calc((100dvh-8rem)*0.838))] rounded-xl bg-white object-contain"
-              />
-              <p className="text-center text-sm font-semibold">UPI ID: Pos.11396721@indus</p>
+              <div className="pr-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-mute">Scan to pay</p>
+                {eventSettings.payment_upi_id && (
+                  <>
+                    <p className="mt-2 text-xs font-bold text-brand-900">UPI ID</p>
+                    <p className="max-w-40 break-all text-sm font-semibold text-brand-900">{eventSettings.payment_upi_id}</p>
+                  </>
+                )}
+              </div>
             </div>
-          </dialog>
+          ) : (
+            <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+              {eventSettings ? "The payment QR code is not available yet. Please contact the organizers." : "Loading payment QR code…"}
+            </p>
+          )}
+          {eventSettings?.payment_qr_url && (
+            <dialog
+              ref={paymentQrDialog}
+              aria-label="Payment QR code"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) paymentQrDialog.current?.close();
+              }}
+              className="fixed inset-0 !m-0 h-dvh max-h-none w-screen max-w-none bg-black/90 p-6 text-white backdrop:bg-black/90"
+            >
+              <div className="flex h-full flex-col items-center justify-center gap-5">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => paymentQrDialog.current?.close()}
+                  className="absolute right-5 top-5 rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold text-white hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                >
+                  Close <span aria-hidden="true">×</span>
+                </button>
+                <Image
+                  src={eventSettings.payment_qr_url}
+                  alt="Payment QR code"
+                  width={768}
+                  height={916}
+                  className="max-h-[calc(100dvh-8rem)] w-auto max-w-[90vw] rounded-xl bg-white object-contain p-2"
+                />
+                {eventSettings.payment_upi_id && <p className="text-center text-sm font-semibold">UPI ID: {eventSettings.payment_upi_id}</p>}
+              </div>
+            </dialog>
+          )}
           <h3 className="font-display font-semibold text-brand-950">Payment details</h3>
           <div className="rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">
             <p>Fee: <strong>₹{eventSettings ? eventSettings.external_fee_per_member * members.length : "—"}</strong> for this team ({members.length} members).</p>

@@ -70,6 +70,9 @@ export default async function HomePage() {
     event_date: "2026-11-19T09:00:00+05:30",
     venue: "SIMATS Engineering Premises",
     duration_text: "8 Hours",
+    contact_name: "",
+    contact_phone: "",
+    contact_email: "",
     registration_open: true,
   };
   let event = defaults;
@@ -87,7 +90,7 @@ export default async function HomePage() {
       { data: scheduleRows, error: scheduleError },
       { data: ruleRows, error: rulesError },
     ] = await Promise.all([
-      supabase.from("event_settings").select("event_name, tagline, about, event_date, venue, duration_text, registration_open, registration_deadline").eq("id", 1).single(),
+      supabase.from("event_settings").select("event_name, tagline, about, event_date, venue, duration_text, contact_name, contact_phone, contact_email, registration_open, registration_deadline").eq("id", 1).single(),
       supabase.from("objectives").select("body").order("sort_order"),
       supabase.from("themes").select("title, description").order("sort_order"),
       supabase.from("schedule_items").select("time_label, title, description").order("sort_order"),
@@ -107,6 +110,9 @@ export default async function HomePage() {
       event_date: data.event_date,
       venue: data.venue,
       duration_text: data.duration_text,
+      contact_name: data.contact_name,
+      contact_phone: data.contact_phone,
+      contact_email: data.contact_email,
       registration_open: data.registration_open && !deadlinePassed,
     };
     liveObjectives = (objectiveRows ?? []).map((item) => item.body);
@@ -297,6 +303,21 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {(event.contact_name || event.contact_phone || event.contact_email) && (
+        <section className="border-y border-brand-100 bg-white py-10 sm:py-12">
+          <div className="container-page flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="eyebrow eyebrow-dark"><span className="eyebrow-dot" /> Student organizer details</p>
+              {event.contact_name && <h2 className="mt-3 font-display text-xl font-semibold text-brand-950">{event.contact_name}</h2>}
+            </div>
+            <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm font-medium text-brand-700">
+              {event.contact_phone && <a className="transition hover:text-brand-900" href={`tel:${event.contact_phone}`}>{event.contact_phone}</a>}
+              {event.contact_email && <a className="transition hover:text-brand-900" href={`mailto:${event.contact_email}`}>{event.contact_email}</a>}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section id="schedule" className="section-space">
         <div className="container-page grid gap-12 lg:grid-cols-[0.75fr_1.25fr] lg:gap-24">

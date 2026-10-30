@@ -82,12 +82,30 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: true, message: "Payment marked as verified." }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const changes = parsed.data.action === "approve"
-    ? { status: "approved", rejection_reason: null }
-    : { status: "rejected", rejection_reason: parsed.data.rejectionReason };
+  if (parsed.data.action === "reject") {
+    const { data, error } = await supabase
+      .from("registrations")
+      .update({ status: "rejected", rejection_reason: parsed.data.rejectionReason })
+      .eq("id", id)
+      .neq("status", "rejected")
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      console.error("registration rejection failed:", error.message);
+      return jsonError("Could not reject the team. Please try again.", 500);
+    }
+    if (!data) return jsonError("Registration not found or already rejected.", 409);
+
+    return NextResponse.json(
+      { ok: true, message: "Team rejected. Its payment record has been retained." },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   const { data, error } = await supabase
     .from("registrations")
-    .update(changes)
+    .update({ status: "approved", rejection_reason: null })
     .eq("id", id)
     .select("id")
     .maybeSingle();
@@ -100,7 +118,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!data) return jsonError("Registration not found.", 404);
 
   return NextResponse.json(
-    { ok: true, message: parsed.data.action === "approve" ? "Team approved." : "Registration rejected." },
+    { ok: true, message: "Team approved." },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

@@ -11,7 +11,7 @@ export async function GET() {
 
   const { data: registrations, error } = await auth.admin.supabase
     .from("registrations")
-    .select("id, registration_code, category, team_name, leader_name, college_name, department, year_of_study, project_title, leader_reg_no, member_count, fee_per_member, total_fee, transaction_id, payment_date, payment_time, payment_status, status, rejection_reason, created_at")
+    .select("id, category, college_name, department, total_fee, transaction_id, created_at")
     .order("created_at", { ascending: false });
   if (error) {
     console.error("registration export lookup failed:", error.message);
@@ -20,18 +20,34 @@ export async function GET() {
 
   const ids = (registrations ?? []).map((row) => row.id);
   const { data: members, error: membersError } = ids.length
-    ? await auth.admin.supabase.from("team_members").select("registration_id, position, full_name, email, phone").in("registration_id", ids).order("position")
+    ? await auth.admin.supabase.from("team_members").select("registration_id, position, full_name, phone, is_leader").in("registration_id", ids).order("position")
     : { data: [], error: null };
   if (membersError) {
     console.error("registration export members lookup failed:", membersError.message);
     return NextResponse.json({ error: "Could not export team member details." }, { status: 503 });
   }
 
-  const byRegistration = new Map<string, string[]>();
+  const byRegistration = new Map<string, Array<{
+    position: number;
+    fullName: string;
+    phone: string;
+    isLeader: boolean;
+  }>>();
   for (const member of members ?? []) {
     const list = byRegistration.get(member.registration_id) ?? [];
-    list.push(`${member.position}. ${member.full_name} (${member.email}, ${member.phone})`);
+    list.push({
+      position: member.position,
+      fullName: member.full_name,
+      phone: member.phone,
+      isLeader: member.is_leader,
+    });
     byRegistration.set(member.registration_id, list);
+  }
+
+  const registrationsWithoutMembers = (registrations ?? []).filter((row) => !byRegistration.has(row.id));
+  if (registrationsWithoutMembers.length > 0) {
+    console.error("registration export found registrations without team members:", registrationsWithoutMembers.length);
+    return NextResponse.json({ error: "Could not export complete team member details." }, { status: 503 });
   }
 
   const workbook = new ExcelJS.Workbook();
@@ -39,54 +55,63 @@ export async function GET() {
   workbook.created = new Date();
   const sheet = workbook.addWorksheet("Registrations", { views: [{ state: "frozen", ySplit: 1 }] });
   sheet.columns = [
-    { header: "Registration ID", key: "code", width: 25 },
-    { header: "Category", key: "category", width: 14 },
-    { header: "Team name", key: "team", width: 25 },
-    { header: "Leader", key: "leader", width: 24 },
-    { header: "College", key: "college", width: 32 },
-    { header: "Department", key: "department", width: 22 },
-    { header: "Year", key: "year", width: 10 },
-    { header: "Project", key: "project", width: 36 },
-    { header: "Members", key: "members", width: 64 },
-    { header: "Leader registration number", key: "regNo", width: 26 },
-    { header: "Member count", key: "memberCount", width: 14 },
-    { header: "Fee per member", key: "fee", width: 16 },
-    { header: "Total fee", key: "total", width: 14 },
-    { header: "Transaction ID", key: "transaction", width: 24 },
-    { header: "Payment date", key: "paymentDate", width: 16 },
-    { header: "Payment time", key: "paymentTime", width: 16 },
-    { header: "Payment status", key: "paymentStatus", width: 18 },
-    { header: "Application status", key: "status", width: 18 },
-    { header: "Rejection reason", key: "rejection", width: 36 },
-    { header: "Submitted at", key: "created", width: 25 },
+    { header: "S.NO", key: "serial", width: 8 },
+    { header: "TIME STAMP", key: "timestamp", width: 24 },
+    { header: "Mobile Number", key: "mobile", width: 25 },
+    { header: "FULL NAME", key: "fullName", width: 30 },
+    { header: "UNIVERSITY NAME", key: "university", width: 55 },
+    { header: "DESIGNATION", key: "designation", width: 24 },
+    { header: "TRANSACTION ID", key: "transactionId", width: 26 },
+    { header: "AMOUNT", key: "amount", width: 14 },
   ];
-  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(1).height = 24;
+  sheet.getRow(1).font = { name: "Times New Roman", size: 12, bold: true, color: { argb: "FFFFFFFF" } };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1B4332" } };
-  for (const row of registrations ?? []) {
-    sheet.addRow({
-      code: row.registration_code,
-      category: row.category,
-      team: row.team_name,
-      leader: row.leader_name,
-      college: row.college_name,
-      department: row.department,
-      year: row.year_of_study,
-      project: row.project_title,
-      members: (byRegistration.get(row.id) ?? []).join("\n"),
-      regNo: row.leader_reg_no ?? "",
-      memberCount: row.member_count,
-      fee: row.fee_per_member,
-      total: row.total_fee,
-      transaction: row.transaction_id ?? "",
-      paymentDate: row.payment_date ?? "",
-      paymentTime: row.payment_time ?? "",
-      paymentStatus: row.payment_status,
-      status: row.status,
-      rejection: row.rejection_reason ?? "",
-      created: row.created_at,
-    });
+  sheet.getRow(1).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+
+  const istOffsetMilliseconds = 5.5 * 60 * 60 * 1000;
+  for (const [registrationIndex, registration] of (registrations ?? []).entries()) {
+    const teamMembers = (byRegistration.get(registration.id) ?? [])
+      .sort((a, b) => Number(b.isLeader) - Number(a.isLeader) || a.position - b.position);
+
+    for (const [memberIndex, member] of teamMembers.entries()) {
+      const isLeader = memberIndex === 0;
+      const row = sheet.addRow({
+        serial: isLeader ? registrationIndex + 1 : null,
+        timestamp: isLeader ? new Date(new Date(registration.created_at).getTime() + istOffsetMilliseconds) : null,
+        mobile: member.phone,
+        fullName: member.fullName,
+        university: registration.college_name,
+        designation: registration.department,
+        transactionId: isLeader && registration.category === "external" ? registration.transaction_id ?? "" : "",
+        amount: isLeader && registration.category === "external" ? registration.total_fee : null,
+      });
+
+      row.height = 22;
+      row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+        cell.font = { name: "Times New Roman", size: 12, bold: isLeader && columnNumber === 4 };
+        cell.alignment = {
+          horizontal: columnNumber === 4 || columnNumber === 5 ? "left" : "center",
+          vertical: "middle",
+          wrapText: true,
+        };
+        cell.border = {
+          top: isLeader ? { style: "medium", color: { argb: "FF1B4332" } } : { style: "thin", color: { argb: "FFD9E2DC" } },
+          left: { style: "thin", color: { argb: "FFD9E2DC" } },
+          bottom: { style: "thin", color: { argb: "FFD9E2DC" } },
+          right: { style: "thin", color: { argb: "FFD9E2DC" } },
+        };
+      });
+
+      row.getCell(2).numFmt = "dd.mm.yyyy hh:mm AM/PM";
+      row.getCell(3).numFmt = "@";
+      row.getCell(7).numFmt = "@";
+      row.getCell(8).numFmt = "#,##0";
+    }
   }
-  sheet.autoFilter = { from: "A1", to: "T1" };
+  sheet.views = [{ state: "frozen", ySplit: 1, zoomScale: 80 }];
+  sheet.properties.defaultRowHeight = 22;
+  sheet.autoFilter = { from: "A1", to: `H${Math.max(sheet.rowCount, 1)}` };
   const buffer = await workbook.xlsx.writeBuffer();
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
